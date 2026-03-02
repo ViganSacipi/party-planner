@@ -1,6 +1,6 @@
 // === Constants ===
 const BASE = "https://fsa-crud-2aa9294fe819.herokuapp.com/api";
-const COHORT = ""; // Make sure to change this!
+const COHORT = "/2601-ftb-ct-web-pt";
 const API = BASE + COHORT;
 
 // === State ===
@@ -57,6 +57,62 @@ async function getGuests() {
   }
 }
 
+// === API Actions ===
+
+/** Create a new party via POST, then refresh parties */
+async function addParty(partyFromForm) {
+  try {
+    // API expects date as an ISO string
+    const isoDate = new Date(partyFromForm.date).toISOString();
+
+    const response = await fetch(API + "/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: partyFromForm.name,
+        description: partyFromForm.description,
+        date: isoDate,
+        location: partyFromForm.location,
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      console.error("POST /events failed:", result);
+      return;
+    }
+
+    // refresh list and optionally select the new party
+    await getParties();
+    if (result?.data?.id) await getParty(result.data.id);
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/** Delete selected party via DELETE, then refresh parties */
+async function deleteSelectedParty() {
+  if (!selectedParty) return;
+
+  try {
+    const response = await fetch(API + "/events/" + selectedParty.id, {
+      method: "DELETE",
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      console.error("DELETE /events/:id failed:", result);
+      return;
+    }
+
+    selectedParty = undefined;
+    await getParties();
+    render();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
 // === Components ===
 
 /** Party name that shows more details about the party when clicked */
@@ -85,6 +141,55 @@ function PartyList() {
   return $ul;
 }
 
+/** Form to create a new party */
+function NewPartyForm() {
+  const $form = document.createElement("form");
+  $form.classList.add("new-party-form");
+
+  $form.innerHTML = `
+    <h2>Create New Party</h2>
+
+    <label>
+      Name
+      <input name="name" required />
+    </label>
+
+    <label>
+      Description
+      <input name="description" required />
+    </label>
+
+    <label>
+      Date
+      <input name="date" type="date" required />
+    </label>
+
+    <label>
+      Location
+      <input name="location" required />
+    </label>
+
+    <button type="submit">Add Party</button>
+  `;
+
+  $form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    const formData = new FormData($form);
+    const party = {
+      name: formData.get("name"),
+      description: formData.get("description"),
+      date: formData.get("date"), // YYYY-MM-DD from <input type="date">
+      location: formData.get("location"),
+    };
+
+    await addParty(party);
+    $form.reset();
+  });
+
+  return $form;
+}
+
 /** Detailed information about the selected party */
 function SelectedParty() {
   if (!selectedParty) {
@@ -101,9 +206,17 @@ function SelectedParty() {
     </time>
     <address>${selectedParty.location}</address>
     <p>${selectedParty.description}</p>
+
+    <button class="delete-party">Delete This Party</button>
+
     <GuestList></GuestList>
   `;
+
   $party.querySelector("GuestList").replaceWith(GuestList());
+
+  $party.querySelector(".delete-party").addEventListener("click", () => {
+    deleteSelectedParty();
+  });
 
   return $party;
 }
@@ -111,20 +224,20 @@ function SelectedParty() {
 /** List of guests attending the selected party */
 function GuestList() {
   const $ul = document.createElement("ul");
+
   const guestsAtParty = guests.filter((guest) =>
     rsvps.find(
       (rsvp) => rsvp.guestId === guest.id && rsvp.eventId === selectedParty.id
     )
   );
 
-  // Simple components can also be created anonymously:
   const $guests = guestsAtParty.map((guest) => {
     const $guest = document.createElement("li");
     $guest.textContent = guest.name;
     return $guest;
   });
-  $ul.replaceChildren(...$guests);
 
+  $ul.replaceChildren(...$guests);
   return $ul;
 }
 
@@ -137,6 +250,7 @@ function render() {
       <section>
         <h2>Upcoming Parties</h2>
         <PartyList></PartyList>
+        <NewPartyForm></NewPartyForm>
       </section>
       <section id="selected">
         <h2>Party Details</h2>
@@ -146,6 +260,7 @@ function render() {
   `;
 
   $app.querySelector("PartyList").replaceWith(PartyList());
+  $app.querySelector("NewPartyForm").replaceWith(NewPartyForm());
   $app.querySelector("SelectedParty").replaceWith(SelectedParty());
 }
 
